@@ -95,7 +95,7 @@ class ChatSession:
                 ),
                 result_type=AgentTurnResult,
                 start_to_close_timeout=timedelta(minutes=10),
-                heartbeat_timeout=timedelta(seconds=120),
+                heartbeat_timeout=timedelta(seconds=60),
                 retry_policy=retry,
             )
 
