@@ -224,52 +224,74 @@ async def _async_main() -> None:
             logger.error("prime attempt %d failed: %s", attempt, exc)
             await asyncio.sleep(min(attempt * 2, 15))
 
-    irc = SimpleIRCClient(cfg)
-    await irc.connect()
-    await irc.join(cfg.channel)
-
     base_nick = cfg.nick
 
-    # Read IRC lines in one task, stream SSE in another
-    async def handle_irc() -> None:
-        registered = False
-        async for line in irc.read_lines():
-            # Respond to PING
-            if line.startswith("PING"):
-                irc._send(f"PONG {line[5:]}")
-                continue
+    while True:
+        irc = SimpleIRCClient(cfg)
+        try:
+            await irc.connect()
+        except Exception as exc:
+            logger.error("IRC connect failed: %s, retrying in 5s", exc)
+            await asyncio.sleep(5)
+            continue
 
-            # Wait for registration
-            if not registered and (" 001 " in line or " 376 " in line):
-                registered = True
-                await irc.join(cfg.channel)
-                logger.info("Registered and joining %s", cfg.channel)
-                continue
+        await irc.join(cfg.channel)
+        stream_task: asyncio.Task | None = None
 
-            # Parse PRIVMSG
-            if "PRIVMSG" in line:
-                parts = line.split(" ", 3)
-                if len(parts) >= 4:
-                    prefix = parts[0]
-                    nick = prefix.split("!")[0].lstrip(":")
-                    target = parts[2]
-                    msg = parts[3].lstrip(":")
-                    if target == cfg.channel and not nick.startswith(base_nick):
-                        payload = f"{nick}: {msg}"
-                        try:
-                            await post_to_webhook(http, cfg, payload)
-                        except Exception as exc:
-                            logger.error("webhook post failed: %s", exc)
+        try:
+            # Read IRC lines in one task, stream SSE in another
+            async def handle_irc() -> None:
+                registered = False
+                async for line in irc.read_lines():
+                    # Respond to PING
+                    if line.startswith("PING"):
+                        irc._send(f"PONG {line[5:]}")
+                        continue
 
-    async def handle_stream() -> None:
-        while True:
+                    # Wait for registration
+                    if not registered and (" 001 " in line or " 376 " in line):
+                        registered = True
+                        await irc.join(cfg.channel)
+                        logger.info("Registered and joining %s", cfg.channel)
+                        continue
+
+                    # Parse PRIVMSG
+                    if "PRIVMSG" in line:
+                        parts = line.split(" ", 3)
+                        if len(parts) >= 4:
+                            prefix = parts[0]
+                            nick = prefix.split("!")[0].lstrip(":")
+                            target = parts[2]
+                            msg = parts[3].lstrip(":")
+                            if target == cfg.channel and not nick.startswith(base_nick):
+                                payload = f"{nick}: {msg}"
+                                try:
+                                    await post_to_webhook(http, cfg, payload)
+                                except Exception as exc:
+                                    logger.error("webhook post failed: %s", exc)
+
+            async def handle_stream() -> None:
+                while True:
+                    try:
+                        await stream_to_irc(http, cfg, irc)
+                    except Exception as exc:
+                        logger.error("stream error: %s", exc)
+                        await asyncio.sleep(2)
+
+            stream_task = asyncio.create_task(handle_stream())
+            await handle_irc()
+        except Exception as exc:
+            logger.error("IRC session error: %s", exc)
+        finally:
+            if stream_task:
+                stream_task.cancel()
             try:
-                await stream_to_irc(http, cfg, irc)
-            except Exception as exc:
-                logger.error("stream error: %s", exc)
-                await asyncio.sleep(2)
+                await irc.quit("reconnecting")
+            except Exception:
+                pass
 
-    await asyncio.gather(handle_irc(), handle_stream())
+        logger.info("IRC disconnected, reconnecting in 5s...")
+        await asyncio.sleep(5)
 
 
 def main() -> None:

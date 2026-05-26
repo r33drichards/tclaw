@@ -4,6 +4,7 @@ import os
 import re
 
 from agents import Agent, Runner
+from agents.mcp import MCPServerStdio
 from openai.types.responses import ResponseTextDeltaEvent
 from temporalio import activity
 
@@ -48,35 +49,42 @@ async def stream_agent_turn(req: StreamReq) -> AgentTurnResult:
             last_user_msg = m.content
             break
 
-    agent = Agent(
-        name="tclaw",
-        instructions="\n\n".join(system_parts),
-        model=MODEL,
-        tools=memory_tools,
+    runno = MCPServerStdio(
+        params={"command": "npx", "args": ["-y", "@runno/mcp"]},
+        cache_tools_list=True,
     )
 
     last_text = ""
     try:
-        result = Runner.run_streamed(
-            agent,
-            input=last_user_msg,
-        )
+        async with runno:
+            agent = Agent(
+                name="tclaw",
+                instructions="\n\n".join(system_parts),
+                model=MODEL,
+                tools=memory_tools,
+                mcp_servers=[runno],
+            )
 
-        async for event in result.stream_events():
-            activity.heartbeat()
+            result = Runner.run_streamed(
+                agent,
+                input=last_user_msg,
+            )
 
-            if event.type == "raw_response_event":
-                # Text deltas for streaming to the client
-                if isinstance(event.data, ResponseTextDeltaEvent):
-                    if event.data.delta:
-                        await publish_delta(req.session_id, event.data.delta)
-            elif event.type == "run_item_stream_event":
-                # Tool call notifications
-                if hasattr(event, "item") and getattr(event.item, "type", None) == "tool_call_item":
-                    tool_name = getattr(event.item, "name", None) or "unknown"
-                    await publish_tool_call(req.session_id, tool_name)
+            async for event in result.stream_events():
+                activity.heartbeat()
 
-        last_text = result.final_output or ""
+                if event.type == "raw_response_event":
+                    # Text deltas for streaming to the client
+                    if isinstance(event.data, ResponseTextDeltaEvent):
+                        if event.data.delta:
+                            await publish_delta(req.session_id, event.data.delta)
+                elif event.type == "run_item_stream_event":
+                    # Tool call notifications
+                    if hasattr(event, "item") and getattr(event.item, "type", None) == "tool_call_item":
+                        tool_name = getattr(event.item, "name", None) or "unknown"
+                        await publish_tool_call(req.session_id, tool_name)
+
+            last_text = result.final_output or ""
 
     finally:
         await publish_turn_end(req.session_id)
