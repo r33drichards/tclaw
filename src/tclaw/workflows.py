@@ -61,7 +61,6 @@ class ChatSession:
         self._title_generated = bool(self._history)
 
         retry = RetryPolicy(maximum_attempts=3)
-        agent_retry = RetryPolicy(maximum_attempts=1)
 
         while not self._closed:
             await workflow.wait_condition(
@@ -97,7 +96,7 @@ class ChatSession:
                 result_type=AgentTurnResult,
                 start_to_close_timeout=timedelta(minutes=10),
                 heartbeat_timeout=timedelta(seconds=120),
-                retry_policy=agent_retry,
+                retry_policy=retry,
             )
 
             self._history.append(Msg(role="assistant", content=result.text))
