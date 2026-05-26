@@ -5,17 +5,11 @@ import os
 import re
 
 from agents import Agent, Runner
-from agents.mcp import MCPServerStdio
-from openai.types.responses import ResponseTextDeltaEvent
 from temporalio import activity
 
 from tclaw import db
 from tclaw.memory_tools import _make_memory_tools
-from tclaw.publish import (
-    publish_delta,
-    publish_tool_call,
-    publish_turn_end,
-)
+from tclaw.publish import publish_turn_end
 from tclaw.types import AgentTurnResult, GenerateTitleReq, PersistTurnReq, StreamReq
 
 logger = logging.getLogger(__name__)
@@ -56,8 +50,6 @@ async def stream_agent_turn(req: StreamReq) -> AgentTurnResult:
             last_user_msg = m.content
             break
 
-    import asyncio
-
     activity.heartbeat("running agent")
 
     last_text = ""
@@ -69,33 +61,10 @@ async def stream_agent_turn(req: StreamReq) -> AgentTurnResult:
             tools=memory_tools,
         )
 
-        result = Runner.run_streamed(
-            agent,
-            input=last_user_msg,
-        )
-
-        async def _consume_stream() -> str:
-            async for event in result.stream_events():
-                activity.heartbeat()
-
-                if event.type == "raw_response_event":
-                    if isinstance(event.data, ResponseTextDeltaEvent):
-                        if event.data.delta:
-                            await publish_delta(req.session_id, event.data.delta)
-                elif event.type == "run_item_stream_event":
-                    if hasattr(event, "item") and getattr(event.item, "type", None) == "tool_call_item":
-                        tool_name = getattr(event.item, "name", None) or "unknown"
-                        await publish_tool_call(req.session_id, tool_name)
-
-            return result.final_output or ""
-
-        last_text = await asyncio.wait_for(_consume_stream(), timeout=120)
-        await asyncio.sleep(0)  # yield event loop for SDK cleanup
+        result = await Runner.run(agent, input=last_user_msg)
+        last_text = result.final_output or ""
         logger.info("stream_agent_turn completed for %s", req.session_id)
 
-    except asyncio.TimeoutError:
-        logger.error("stream_agent_turn timed out for %s", req.session_id)
-        last_text = result.final_output or "(response timed out)"
     except Exception as exc:
         logger.error("Agent turn failed: %s", exc, exc_info=True)
         raise
