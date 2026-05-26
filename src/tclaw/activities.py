@@ -74,6 +74,8 @@ async def stream_agent_turn(req: StreamReq) -> AgentTurnResult:
 
     activity.heartbeat("running agent")
 
+    import asyncio
+
     last_text = ""
     try:
         agent = Agent(
@@ -89,22 +91,27 @@ async def stream_agent_turn(req: StreamReq) -> AgentTurnResult:
             input=last_user_msg,
         )
 
-        async for event in result.stream_events():
-            activity.heartbeat()
+        async def _consume_stream() -> str:
+            async for event in result.stream_events():
+                activity.heartbeat()
 
-            if event.type == "raw_response_event":
-                # Text deltas for streaming to the client
-                if isinstance(event.data, ResponseTextDeltaEvent):
-                    if event.data.delta:
-                        await publish_delta(req.session_id, event.data.delta)
-            elif event.type == "run_item_stream_event":
-                # Tool call notifications
-                if hasattr(event, "item") and getattr(event.item, "type", None) == "tool_call_item":
-                    tool_name = getattr(event.item, "name", None) or "unknown"
-                    await publish_tool_call(req.session_id, tool_name)
+                if event.type == "raw_response_event":
+                    if isinstance(event.data, ResponseTextDeltaEvent):
+                        if event.data.delta:
+                            await publish_delta(req.session_id, event.data.delta)
+                elif event.type == "run_item_stream_event":
+                    if hasattr(event, "item") and getattr(event.item, "type", None) == "tool_call_item":
+                        tool_name = getattr(event.item, "name", None) or "unknown"
+                        await publish_tool_call(req.session_id, tool_name)
 
-        last_text = result.final_output or ""
+            return result.final_output or ""
 
+        last_text = await asyncio.wait_for(_consume_stream(), timeout=120)
+        logger.info("stream_agent_turn completed for %s", req.session_id)
+
+    except asyncio.TimeoutError:
+        logger.error("stream_agent_turn timed out for %s", req.session_id)
+        last_text = result.final_output or "(response timed out)"
     except Exception as exc:
         logger.error("Agent turn failed: %s", exc, exc_info=True)
         raise
