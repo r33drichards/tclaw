@@ -23,8 +23,10 @@ logger = logging.getLogger(__name__)
 MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
 TITLE_MODEL = os.environ.get("OPENAI_TITLE_MODEL", "gpt-4o-mini")
 
-# Disable OpenAI Agents SDK tracing (fails with 403 on ZDR orgs)
+# Disable OpenAI Agents SDK tracing (fails with 403 on ZDR orgs and blocks event loop)
 os.environ.setdefault("OPENAI_AGENTS_DISABLE_TRACING", "1")
+from agents.tracing import set_tracing_disabled
+set_tracing_disabled(True)
 
 
 @activity.defn
@@ -90,6 +92,7 @@ async def stream_agent_turn(req: StreamReq) -> AgentTurnResult:
             return result.final_output or ""
 
         last_text = await asyncio.wait_for(_consume_stream(), timeout=120)
+        await asyncio.sleep(0)  # yield event loop for SDK cleanup
         logger.info("stream_agent_turn completed for %s", req.session_id)
 
     except asyncio.TimeoutError:
