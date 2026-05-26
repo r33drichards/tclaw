@@ -31,7 +31,11 @@ async def _async_main() -> None:
     )
 
     logging.info("Worker listening on task queue %r at %s", task_queue, address)
-    await worker.run()
+    try:
+        await worker.run()
+    except Exception as exc:
+        logging.error("Worker crashed: %s", exc, exc_info=True)
+        raise
 
 
 def main() -> None:

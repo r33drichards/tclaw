@@ -70,6 +70,7 @@ class ChatSession:
                 break
 
             user_turn = drain_inbox(self._inbox, self._history)
+            workflow.logger.info("Processing turn for %s: %s", session_id, user_turn[:80] if user_turn else "None")
 
             # Persist the user turn
             if user_turn is not None:
