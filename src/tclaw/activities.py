@@ -117,24 +117,24 @@ async def persist_turn(req: PersistTurnReq) -> None:
 async def generate_title(req: GenerateTitleReq) -> None:
     """Generate a short title for the session from the first user message."""
     try:
-        import asyncio
+        import httpx
 
         logger.info("generate_title starting for %s", req.session_id)
-        agent = Agent(
-            name="title-generator",
-            instructions=(
-                "Summarise the following message as a concise 3-6 word chat "
-                "title. Reply with ONLY the title text, no quotes, no "
-                "punctuation, no leading 'Title:'."
-            ),
-            model=TITLE_MODEL,
-            tools=[],
-        )
-        result = await asyncio.wait_for(
-            Runner.run(agent, input=req.user_message),
-            timeout=30,
-        )
-        title = result.final_output or ""
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"},
+                json={
+                    "model": TITLE_MODEL,
+                    "messages": [
+                        {"role": "system", "content": "Summarise the following message as a concise 3-6 word chat title. Reply with ONLY the title text, no quotes, no punctuation."},
+                        {"role": "user", "content": req.user_message},
+                    ],
+                    "max_tokens": 20,
+                },
+            )
+            resp.raise_for_status()
+            title = resp.json()["choices"][0]["message"]["content"].strip()
         title = re.sub(r'^["\'"`]+|["\'"`]+$', "", title)
         title = title.rstrip(".").strip()[:80]
         logger.info("generate_title done for %s: %s", req.session_id, title)
