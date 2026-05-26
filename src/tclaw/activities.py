@@ -50,7 +50,7 @@ async def stream_agent_turn(req: StreamReq) -> AgentTurnResult:
             break
 
     runno = MCPServerStdio(
-        params={"command": "npx", "args": ["-y", "@runno/mcp"]},
+        params={"command": "npx", "args": ["-y", "@runno/mcp@0.10.2"]},
         cache_tools_list=True,
     )
 
