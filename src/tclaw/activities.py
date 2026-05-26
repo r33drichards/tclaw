@@ -107,6 +107,9 @@ async def persist_turn(req: PersistTurnReq) -> None:
 async def generate_title(req: GenerateTitleReq) -> None:
     """Generate a short title for the session from the first user message."""
     try:
+        import asyncio
+
+        logger.info("generate_title starting for %s", req.session_id)
         agent = Agent(
             name="title-generator",
             instructions=(
@@ -117,12 +120,16 @@ async def generate_title(req: GenerateTitleReq) -> None:
             model=TITLE_MODEL,
             tools=[],
         )
-        result = await Runner.run(agent, input=req.user_message)
+        result = await asyncio.wait_for(
+            Runner.run(agent, input=req.user_message),
+            timeout=30,
+        )
         title = result.final_output or ""
         title = re.sub(r'^["\'"`]+|["\'"`]+$', "", title)
         title = title.rstrip(".").strip()[:80]
+        logger.info("generate_title done for %s: %s", req.session_id, title)
         if not title:
             return
         await db.rename_session(req.session_id, req.user_id, title)
-    except Exception:
-        pass  # best-effort
+    except Exception as exc:
+        logger.warning("generate_title failed for %s: %s", req.session_id, exc)
