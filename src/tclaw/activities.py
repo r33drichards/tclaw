@@ -34,6 +34,7 @@ async def stream_agent_turn(req: StreamReq) -> AgentTurnResult:
     Creates an Agent with memory tools, streams the response, publishes
     deltas to Redis, heartbeats on each chunk, and returns the final text.
     """
+    logger.info("stream_agent_turn starting for %s", req.session_id)
     memory_ctx = await db.load_memory_context(req.user_id)
     memory_tools = _make_memory_tools(req.user_id)
 
@@ -99,8 +100,10 @@ async def stream_agent_turn(req: StreamReq) -> AgentTurnResult:
 @activity.defn
 async def persist_turn(req: PersistTurnReq) -> None:
     """Write a message to Postgres and touch the session timestamp."""
+    logger.info("persist_turn: %s %s", req.session_id, req.role)
     await db.append_message(req.session_id, req.role, req.content, req.user_id)
     await db.touch_session(req.session_id)
+    logger.info("persist_turn done: %s", req.session_id)
 
 
 @activity.defn
