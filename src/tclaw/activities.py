@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 
@@ -16,6 +17,8 @@ from tclaw.publish import (
     publish_turn_end,
 )
 from tclaw.types import AgentTurnResult, GenerateTitleReq, PersistTurnReq, StreamReq
+
+logger = logging.getLogger(__name__)
 
 MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
 TITLE_MODEL = os.environ.get("OPENAI_TITLE_MODEL", "gpt-4o-mini")
@@ -49,45 +52,61 @@ async def stream_agent_turn(req: StreamReq) -> AgentTurnResult:
             last_user_msg = m.content
             break
 
+    # Try to start Runno MCP server; fall back to no MCP if it fails
+    mcp_servers = []
     runno = MCPServerStdio(
         params={"command": "npx", "args": ["-y", "@runno/mcp@0.10.2"]},
         cache_tools_list=True,
     )
+    runno_ctx = None
+    try:
+        runno_ctx = await runno.__aenter__()
+        mcp_servers = [runno]
+        logger.info("Runno MCP server started")
+    except Exception as exc:
+        logger.warning("Runno MCP server failed to start: %s", exc)
 
     last_text = ""
     try:
-        async with runno:
-            agent = Agent(
-                name="tclaw",
-                instructions="\n\n".join(system_parts),
-                model=MODEL,
-                tools=memory_tools,
-                mcp_servers=[runno],
-            )
+        agent = Agent(
+            name="tclaw",
+            instructions="\n\n".join(system_parts),
+            model=MODEL,
+            tools=memory_tools,
+            mcp_servers=mcp_servers,
+        )
 
-            result = Runner.run_streamed(
-                agent,
-                input=last_user_msg,
-            )
+        result = Runner.run_streamed(
+            agent,
+            input=last_user_msg,
+        )
 
-            async for event in result.stream_events():
-                activity.heartbeat()
+        async for event in result.stream_events():
+            activity.heartbeat()
 
-                if event.type == "raw_response_event":
-                    # Text deltas for streaming to the client
-                    if isinstance(event.data, ResponseTextDeltaEvent):
-                        if event.data.delta:
-                            await publish_delta(req.session_id, event.data.delta)
-                elif event.type == "run_item_stream_event":
-                    # Tool call notifications
-                    if hasattr(event, "item") and getattr(event.item, "type", None) == "tool_call_item":
-                        tool_name = getattr(event.item, "name", None) or "unknown"
-                        await publish_tool_call(req.session_id, tool_name)
+            if event.type == "raw_response_event":
+                # Text deltas for streaming to the client
+                if isinstance(event.data, ResponseTextDeltaEvent):
+                    if event.data.delta:
+                        await publish_delta(req.session_id, event.data.delta)
+            elif event.type == "run_item_stream_event":
+                # Tool call notifications
+                if hasattr(event, "item") and getattr(event.item, "type", None) == "tool_call_item":
+                    tool_name = getattr(event.item, "name", None) or "unknown"
+                    await publish_tool_call(req.session_id, tool_name)
 
-            last_text = result.final_output or ""
+        last_text = result.final_output or ""
 
+    except Exception as exc:
+        logger.error("Agent turn failed: %s", exc, exc_info=True)
+        raise
     finally:
         await publish_turn_end(req.session_id)
+        if runno_ctx is not None:
+            try:
+                await runno.__aexit__(None, None, None)
+            except Exception:
+                pass
 
     return AgentTurnResult(text=last_text)
 
