@@ -86,13 +86,14 @@ class ChatSession:
                 )
 
             # Run the agent
-            result: AgentTurnResult = await workflow.execute_activity(
+            result = await workflow.execute_activity(
                 "stream_agent_turn",
                 StreamReq(
                     session_id=session_id,
                     history=list(self._history),
                     user_id=user_id,
                 ),
+                result_type=AgentTurnResult,
                 start_to_close_timeout=timedelta(minutes=10),
                 heartbeat_timeout=timedelta(seconds=60),
                 retry_policy=retry,
