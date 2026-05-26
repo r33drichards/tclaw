@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+.venv
+__pycache__
+*.pyc
+dist/
+*.egg-info/
+nix/
+flake.nix
+flake.lock
+tests/
+.pytest_cache/
+.mypy_cache/
+.pyright/

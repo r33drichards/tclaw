@@ -211,7 +211,7 @@ async def stream_session(
 def main() -> None:
     import uvicorn
 
-    port = int(os.environ.get("WEBHOOK_PORT", "8787"))
+    port = int(os.environ.get("PORT", os.environ.get("WEBHOOK_PORT", "8787")))
     uvicorn.run(app, host="0.0.0.0", port=port)
 
 
