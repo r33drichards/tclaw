@@ -56,6 +56,22 @@ async def stream_agent_turn(req: StreamReq) -> AgentTurnResult:
             last_user_msg = m.content
             break
 
+    activity.heartbeat("starting MCP")
+
+    # Start Runno MCP server for sandboxed code execution; fall back gracefully
+    mcp_servers = []
+    runno = MCPServerStdio(
+        params={"command": "npx", "args": ["-y", "@runno/mcp@0.10.2"]},
+        cache_tools_list=True,
+    )
+    runno_ctx = None
+    try:
+        runno_ctx = await runno.__aenter__()
+        mcp_servers = [runno]
+        logger.info("Runno MCP server started")
+    except Exception as exc:
+        logger.warning("Runno MCP server failed to start: %s", exc)
+
     activity.heartbeat("running agent")
 
     last_text = ""
@@ -65,6 +81,7 @@ async def stream_agent_turn(req: StreamReq) -> AgentTurnResult:
             instructions="\n\n".join(system_parts),
             model=MODEL,
             tools=memory_tools,
+            mcp_servers=mcp_servers,
         )
 
         result = Runner.run_streamed(
@@ -93,6 +110,11 @@ async def stream_agent_turn(req: StreamReq) -> AgentTurnResult:
         raise
     finally:
         await publish_turn_end(req.session_id)
+        if runno_ctx is not None:
+            try:
+                await runno.__aexit__(None, None, None)
+            except Exception:
+                pass
 
     return AgentTurnResult(text=last_text)
 
