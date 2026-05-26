@@ -1,0 +1,46 @@
+[project]
+name = "tclaw"
+version = "0.1.0"
+description = "Durable chat agent powered by OpenAI Agents SDK and Temporal workflows"
+requires-python = ">=3.11"
+dependencies = [
+    "temporalio>=1.17.0,<2",
+    "temporalio[openai-agents]>=1.17.0",
+    "openai-agents>=0.2.3",
+    "pydantic>=2.0,<3",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "sse-starlette>=2.0",
+    "redis[hiredis]>=5.0",
+    "asyncpg>=0.30.0",
+    "httpx>=0.27.0",
+]
+
+[project.optional-dependencies]
+irc = ["irc>=20.0"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "pyright>=1.1",
+]
+
+[project.scripts]
+tclaw-worker = "tclaw.worker:main"
+tclaw-webhook = "tclaw.webhook:main"
+tclaw-irc = "tclaw.irc_bridge:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tclaw"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+timeout = 60
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
