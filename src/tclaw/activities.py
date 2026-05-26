@@ -23,10 +23,8 @@ logger = logging.getLogger(__name__)
 MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
 TITLE_MODEL = os.environ.get("OPENAI_TITLE_MODEL", "gpt-4o-mini")
 
-# Disable OpenAI Agents SDK tracing (fails with 403 on ZDR orgs and blocks event loop)
-os.environ.setdefault("OPENAI_AGENTS_DISABLE_TRACING", "1")
-from agents.tracing import set_tracing_disabled
-set_tracing_disabled(True)
+# Disable OpenAI Agents SDK tracing (fails with 403 on ZDR orgs)
+os.environ["OPENAI_AGENTS_DISABLE_TRACING"] = "1"
 
 
 @activity.defn
