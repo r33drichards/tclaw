@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
 TITLE_MODEL = os.environ.get("OPENAI_TITLE_MODEL", "gpt-4o-mini")
 
+# Disable OpenAI Agents SDK tracing (fails with 403 on ZDR orgs)
+os.environ.setdefault("OPENAI_AGENTS_DISABLE_TRACING", "1")
+
 
 @activity.defn
 async def stream_agent_turn(req: StreamReq) -> AgentTurnResult:
@@ -52,6 +55,8 @@ async def stream_agent_turn(req: StreamReq) -> AgentTurnResult:
             last_user_msg = m.content
             break
 
+    activity.heartbeat("starting MCP")
+
     # Try to start Runno MCP server; fall back to no MCP if it fails
     mcp_servers = []
     runno = MCPServerStdio(
@@ -65,6 +70,8 @@ async def stream_agent_turn(req: StreamReq) -> AgentTurnResult:
         logger.info("Runno MCP server started")
     except Exception as exc:
         logger.warning("Runno MCP server failed to start: %s", exc)
+
+    activity.heartbeat("running agent")
 
     last_text = ""
     try:
